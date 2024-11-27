@@ -1,92 +1,72 @@
 import numpy as np
-import random
 
-# Parâmetros do algoritmo
-alpha = 1.0  # Importância do feromônio
-beta = 2.0   # Importância da visibilidade
-rho = 0.5    # Taxa de evaporação do feromônio
-Q = 100      # Quantidade de feromônio depositada
-num_ants = 10  # Número de formigas
-num_iterations = 100  # Número de iterações
+class ColoniaDeFormigas:
+    def __init__(self, distancias, n_formigas, n_melhores, n_iteracoes, decaimento, alfa=1, beta=1):
+        self.distancias = distancias
+        self.feromonio = np.ones(self.distancias.shape) / len(distancias)
+        self.todos_indices = list(range(len(distancias)))
+        self.n_formigas = n_formigas
+        self.n_melhores = n_melhores
+        self.n_iteracoes = n_iteracoes
+        self.decaimento = decaimento
+        self.alfa = alfa
+        self.beta = beta
 
-# Função de distância entre cidades (pode ser substituído por distâncias reais)
-def calculate_distance(city1, city2):
-    return np.linalg.norm(np.array(city1) - np.array(city2))
+    def executar(self):
+        caminho_mais_curto_todos_os_tempos = (None, np.inf)
+        for i in range(self.n_iteracoes):
+            print(f"\nIteração {i + 1}:")
+            todos_caminhos = self.gerar_todos_caminhos()
+            self.espalhar_feromonio(todos_caminhos)
+            caminho_mais_curto = min(todos_caminhos, key=lambda x: x[1])
+            if caminho_mais_curto[1] < caminho_mais_curto_todos_os_tempos[1]:
+                caminho_mais_curto_todos_os_tempos = caminho_mais_curto
+            self.feromonio *= self.decaimento
+        return caminho_mais_curto_todos_os_tempos
 
-# Gerar distâncias para as cidades
-def generate_distance_matrix(cities):
-    n = len(cities)
-    distance_matrix = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            if i != j:
-                distance_matrix[i][j] = calculate_distance(cities[i], cities[j])
-    return distance_matrix
+    def espalhar_feromonio(self, todos_caminhos):
+        caminhos_ordenados = sorted(todos_caminhos, key=lambda x: x[1])
+        for caminho, _ in caminhos_ordenados[:self.n_melhores]:
+            for u, v in caminho:
+                self.feromonio[u, v] += 1.0 / self.distancias[u, v]
 
-# Função para o algoritmo Ant System
-def ant_system(cities):
-    num_cities = len(cities)
-    distance_matrix = generate_distance_matrix(cities)
-    
-    # Inicializar feromônio e visibilidade
-    pheromone = np.ones((num_cities, num_cities))  # Inicialmente, todas as arestas têm feromônio 1
-    visibility = 1 / (distance_matrix + np.eye(num_cities))  # Visibilidade é 1/distância (evitar div por 0)
+    def gerar_distancia_caminho(self, caminho):
+        distancia_total = 0
+        for u, v in caminho:
+            distancia_total += self.distancias[u, v]
+        return int(distancia_total)
 
-    best_path = None
-    best_path_length = float('inf')
+    def gerar_todos_caminhos(self):
+        todos_caminhos = []
+        for i in range(self.n_formigas):
+            caminho = self.gerar_caminho(0)
+            distancia = self.gerar_distancia_caminho(caminho)
+            todos_caminhos.append((caminho, distancia))
+            caminho_convertido = [(int(u), int(v)) for u, v in caminho]
+            print(f"Formiga {i + 1} - Caminho gerado: {caminho_convertido}, Distância: {distancia}")
+        return todos_caminhos
 
-    for _ in range(num_iterations):
-        all_paths = []
-        all_path_lengths = []
-        
-        # Cada formiga constrói uma solução
-        for _ in range(num_ants):
-            path = [random.randint(0, num_cities - 1)]  # Iniciar em uma cidade aleatória
-            while len(path) < num_cities:
-                current_city = path[-1]
-                probabilities = []
-                
-                # Calcular probabilidades para escolher a próxima cidade
-                for next_city in range(num_cities):
-                    if next_city not in path:
-                        prob = (pheromone[current_city][next_city] ** alpha) * \
-                               (visibility[current_city][next_city] ** beta)
-                        probabilities.append(prob)
-                    else:
-                        probabilities.append(0)
-                probabilities = np.array(probabilities) / sum(probabilities)
-                next_city = np.random.choice(range(num_cities), p=probabilities)
-                path.append(next_city)
-            
-            # Completar o ciclo (voltar à cidade inicial)
-            path.append(path[0])
-            all_paths.append(path)
-            
-            # Calcular o comprimento do caminho
-            path_length = sum(distance_matrix[path[i]][path[i + 1]] for i in range(num_cities))
-            all_path_lengths.append(path_length)
-        
-        # Atualizar a melhor solução
-        min_length = min(all_path_lengths)
-        if min_length < best_path_length:
-            best_path_length = min_length
-            best_path = all_paths[all_path_lengths.index(min_length)]
+    def gerar_caminho(self, inicio):
+        caminho = []
+        visitados = set()
+        visitados.add(inicio)
+        anterior = inicio
+        for _ in range(len(self.distancias) - 1):
+            movimento = self.escolher_movimento(self.feromonio[anterior], self.distancias[anterior], visitados)
+            caminho.append((anterior, movimento))
+            anterior = movimento
+            visitados.add(movimento)
+        caminho.append((anterior, inicio))
+        return caminho
 
-        # Evaporação de feromônio
-        pheromone *= (1 - rho)
-        
-        # Atualização do feromônio
-        for i, path in enumerate(all_paths):
-            for j in range(num_cities):
-                city1, city2 = path[j], path[j + 1]
-                pheromone[city1][city2] += Q / all_path_lengths[i]
-                pheromone[city2][city1] += Q / all_path_lengths[i]  # Grafo não direcionado
-
-    return best_path, best_path_length
-
-# Exemplo de cidades (coordenadas 2D)
-cities = [(0, 0), (1, 5), (5, 1), (8, 6), (3, 7)]
-best_path, best_path_length = ant_system(cities)
-
-print("Melhor caminho:", best_path)
-print("Comprimento do melhor caminho:", best_path_length)
+    def escolher_movimento(self, feromonio, dist, visitados):
+        feromonio = np.copy(feromonio)
+        feromonio[list(visitados)] = 0
+        dist = np.where(dist == 0, 1e-10, dist)
+        linha = feromonio ** self.alfa * ((1.0 / dist) ** self.beta)
+        if linha.sum() == 0:
+            linha_normalizada = np.ones_like(linha) / len(linha)
+        else:
+            linha_normalizada = linha / linha.sum()
+        movimento = np.random.choice(self.todos_indices, 1, p=linha_normalizada)[0]
+        return movimento
